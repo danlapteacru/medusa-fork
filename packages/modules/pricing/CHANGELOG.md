@@ -1,5 +1,14 @@
 # @medusajs/pricing
 
+## 2.19.0
+
+### Patch Changes
+
+- [#16267](https://github.com/medusajs/medusa/pull/16267) [`941fd67d59b6f506efc18e255b051c4d3ab14f64`](https://github.com/medusajs/medusa/commit/941fd67d59b6f506efc18e255b051c4d3ab14f64) Thanks [@lazerg](https://github.com/lazerg)! - fix(pricing): allow updating prices with an empty rules object
+
+- Updated dependencies [[`5f4d93c374b0ad0b0a31e75de98c7557e0415677`](https://github.com/medusajs/medusa/commit/5f4d93c374b0ad0b0a31e75de98c7557e0415677)]:
+  - @medusajs/framework@2.19.0
+
 ## 2.18.0
 
 ### Patch Changes
