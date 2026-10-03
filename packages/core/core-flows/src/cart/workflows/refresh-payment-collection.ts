@@ -10,7 +10,10 @@ import {
 } from "@medusajs/framework/workflows-sdk"
 import { useQueryGraphStep } from "../../common"
 import { acquireLockStep, releaseLockStep } from "../../locking"
-import { updatePaymentCollectionStep } from "../../payment-collection"
+import {
+  updatePaymentCollectionStep,
+  updatePaymentSessionsStep,
+} from "../../payment-collection"
 import { deletePaymentSessionsWorkflow } from "../../payment-collection/workflows/delete-payment-sessions"
 import { validateCartStep } from "../steps"
 
@@ -33,7 +36,7 @@ export const refreshPaymentCollectionForCartWorkflowId =
 /**
  * This workflow refreshes a cart's payment collection, which is useful once the cart is created or when its details
  * are updated. If the cart's total changes to the amount in its payment collection, the payment collection's payment sessions are
- * deleted. It also syncs the payment collection's amount, currency code, and other details with the details in the cart.
+ * re-pointed at the new amount, or deleted when they cannot be. It also syncs the payment collection's amount, currency code, and other details with the details in the cart.
  *
  * This workflow is used by other cart-related workflows, such as the {@link refreshCartItemsWorkflow} to refresh the cart's
  * payment collection after an update.
@@ -93,6 +96,11 @@ export const refreshPaymentCollectionForCartWorkflow = createWorkflow(
           "payment_collection.amount",
           "payment_collection.currency_code",
           "payment_collection.payment_sessions.id",
+          "payment_collection.payment_sessions.data",
+          "payment_collection.payment_sessions.amount",
+          "payment_collection.payment_sessions.currency_code",
+          "payment_collection.payment_sessions.raw_amount",
+          "payment_collection.payment_sessions.status",
         ],
         filters: { id: cartId },
         options: {
@@ -137,16 +145,29 @@ export const refreshPaymentCollectionForCartWorkflow = createWorkflow(
         return shouldExecute
       }
     ).then(() => {
-      const deletePaymentSessionInput = transform(
-        { paymentCollection: cart.payment_collection },
-        (data) => {
-          return {
-            ids:
-              data.paymentCollection?.payment_sessions
-                ?.map((ps) => ps.id)
-                ?.flat(1) || [],
-          }
+      const updatePaymentSessionsInput = transform({ cart }, ({ cart }) => {
+        return {
+          sessions: (cart.payment_collection?.payment_sessions ?? []).map(
+            (ps) => ({
+              id: ps.id,
+              amount: cart.raw_total,
+              previous_amount: ps.raw_amount ?? ps.amount,
+              currency_code: cart.currency_code,
+              session_currency_code: ps.currency_code,
+              status: ps.status,
+              data: ps.data ?? null,
+            })
+          ),
         }
+      })
+
+      // The ids of the sessions that could not be re-pointed, already shaped
+      // as deletePaymentSessionsWorkflow's input. Deleting through that
+      // workflow rather than inline keeps its guarantee that a partial delete
+      // fails the refresh, instead of letting the collection's amount advance
+      // past a session that is still on the old one.
+      const sessionsToDelete = updatePaymentSessionsStep(
+        updatePaymentSessionsInput
       )
 
       const updatePaymentCollectionInput = transform({ cart }, ({ cart }) => {
@@ -164,9 +185,7 @@ export const refreshPaymentCollectionForCartWorkflow = createWorkflow(
       })
 
       parallelize(
-        deletePaymentSessionsWorkflow.runAsStep({
-          input: deletePaymentSessionInput,
-        }),
+        deletePaymentSessionsWorkflow.runAsStep({ input: sessionsToDelete }),
         updatePaymentCollectionStep(updatePaymentCollectionInput)
       )
     })

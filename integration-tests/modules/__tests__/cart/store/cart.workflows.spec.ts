@@ -4131,6 +4131,86 @@ medusaIntegrationTestRunner({
           expect(sessionShouldNotExist).toHaveLength(0)
         })
 
+        // This covers the *fallback*, not the in-place path. `pp_system_default`
+        // returns `{ data: {} }` from `updatePayment`, and
+        // `updatePaymentSession` replaces the row's `data` with whatever the
+        // provider returns (unlike `createPaymentSession`, which merges it), so
+        // re-pointing a system-provider session would erase the reference to
+        // its remote payment and leave a session that can no longer address or
+        // cancel it. `updatePaymentSessionsStep` detects that and hands the
+        // session on to be deleted instead, which is the behaviour every
+        // session had before the step existed.
+        //
+        // Proving the in-place path end to end needs a provider that returns
+        // its remote object the way Stripe's does; no such provider is
+        // registered in this suite, so that path is covered by the step's unit
+        // spec (`core-flows/src/payment-collection/steps/__tests__`).
+        it("should delete a payment session whose provider cannot carry its data through an update", async () => {
+          const cart = await cartModuleService.createCarts({
+            currency_code: "dkk",
+            region_id: defaultRegion.id,
+            items: [
+              {
+                quantity: 1,
+                unit_price: 5000,
+                title: "Test item",
+              },
+            ],
+          })
+
+          const paymentCollection =
+            await paymentModule.createPaymentCollections({
+              amount: 5001,
+              currency_code: "dkk",
+            })
+
+          // Unlike the session in the test above, this one carries provider
+          // data, so it passes the "has something to address" gate and the step
+          // actually calls the provider. `createPaymentSession` stores `data`
+          // as given, since `pp_system_default` returns none of its own.
+          await paymentModule.createPaymentSession(paymentCollection.id, {
+            amount: 5001,
+            currency_code: "dkk",
+            data: { id: "test-remote-payment" },
+            provider_id: "pp_system_default",
+          })
+
+          await remoteLink.create([
+            {
+              [Modules.CART]: {
+                cart_id: cart.id,
+              },
+              [Modules.PAYMENT]: {
+                payment_collection_id: paymentCollection.id,
+              },
+            },
+          ])
+
+          await refreshPaymentCollectionForCartWorkflow(appContainer).run({
+            input: {
+              cart_id: cart.id,
+            },
+          })
+
+          const sessions = await paymentModule.listPaymentSessions({
+            payment_collection_id: paymentCollection.id,
+          })
+
+          expect(sessions).toHaveLength(0)
+
+          // The collection still follows the cart, exactly as it did when every
+          // session was deleted unconditionally.
+          const updatedPaymentCollection =
+            await paymentModule.retrievePaymentCollection(paymentCollection.id)
+
+          expect(updatedPaymentCollection).toEqual(
+            expect.objectContaining({
+              id: paymentCollection.id,
+              amount: 5000,
+            })
+          )
+        })
+
         describe("compensation", () => {
           it("should revert payment collection amount and create a new payment session", async () => {
             const region = await regionModuleService.createRegions({

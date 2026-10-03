@@ -21,8 +21,9 @@ export interface DeletePaymentSessionsWorkflowInput {
 export const deletePaymentSessionsWorkflowId = "delete-payment-sessions"
 /**
  * This workflow deletes one or more payment sessions. It's used by other workflows, like
- * {@link refreshPaymentCollectionForCartWorkflow} to delete payment sessions when the cart's total changes.
- * 
+ * {@link refreshPaymentCollectionForCartWorkflow} to delete the payment sessions that could not be
+ * re-pointed at the cart's new total.
+ *
  * You can use this workflow within your own customizations or custom workflows, allowing you
  * to delete payment sessions in your custom flows.
  * 
